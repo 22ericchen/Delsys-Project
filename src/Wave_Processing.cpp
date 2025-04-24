@@ -25,8 +25,6 @@ const float POWER_LINE_AMPLITUDE = 0.3f;
 const float HIGHPASS_CUTOFF = 5.0f; // High-pass cutoff (Hz)
 const float BANDPASS_LOW = 5.0f; // Hz
 const float BANDPASS_HIGH = 50.0f; // Hz
-const float NOTCH_FREQ = 10.0f; // Hz
-const float NOTCH_Q = 30.0f; // Quality factor for notch filter
 const float LOWPASS_CUTOFF = 2.0f; // Low-pass cutoff for envelope (Hz)
 
 // Circular buffers for raw, filtered, and envelope signals
@@ -43,6 +41,97 @@ std::uniform_real_distribution<float> amp_dist(0.8f, 1.2f);
 std::uniform_real_distribution<float> freq_dist(0.9f, 1.1f);
 std::uniform_real_distribution<float> burst_dist(0.0f, 1.0f);
 std::uniform_real_distribution<float> burst_scale(1.0f, 3.0f);
+
+// Enum to define filter types
+enum class FilterType {
+    HighPass,
+    BandPass,
+    LowPass
+};
+
+// Filter class to abstract IIR filter implementation
+class Filter {
+private:
+    // Coefficients for the IIR difference equation
+    float b0, b1, b2; // Feedforward coefficients
+    float a0, a1, a2; // Feedback coefficients
+
+    // Delay lines
+    float x1, x2, y1, y2;
+
+public:
+    Filter(FilterType type, float sample_rate, float freq1, float freq2 = 0.0f, float q = 1.0f) {
+        // Initialize delay lines to zero
+        x1 = x2 = y1 = y2 = 0.0f;
+
+        // Compute coefficients based on filter type
+        switch (type) {
+            case FilterType::HighPass: {
+                float omega = 2.0f * M_PI * freq1 / sample_rate;
+                float alpha = sin(omega) / (2.0f * q);
+
+                a0 = 1.0f + alpha;
+                a1 = -2.0f * cos(omega);
+                a2 = 1.0f - alpha;
+                b0 = (1.0f + cos(omega)) / 2.0f;
+                b1 = -(1.0f + cos(omega));
+                b2 = (1.0f + cos(omega)) / 2.0f;
+                break;
+            }
+            case FilterType::BandPass: {
+                float wc = 2.0f * M_PI * sqrt(freq1 * freq2) / sample_rate;
+                float bw = 2.0f * M_PI * (freq2 - freq1) / sample_rate;
+
+                float alpha = sin(bw) * sinh(log(2.0f) / 2.0f * 1.0f * M_PI / 2.0f);
+                float cosw = cos(wc);
+
+                a0 = 1.0f + alpha;
+                a1 = -2.0f * cosw;
+                a2 = 1.0f - alpha;
+                b0 = alpha;
+                b1 = 0.0f;
+                b2 = -alpha;
+                break;
+            }
+            case FilterType::LowPass: {
+                float omega = 2.0f * M_PI * freq1 / sample_rate;
+                float alpha = sin(omega) / (2.0f * q);
+
+                a0 = 1.0f + alpha;
+                a1 = -2.0f * cos(omega);
+                a2 = 1.0f - alpha;
+                b0 = (1.0f - cos(omega)) / 2.0f;
+                b1 = 1.0f - cos(omega);
+                b2 = (1.0f - cos(omega)) / 2.0f;
+                break;
+            }
+            default:
+                a0 = 1.0f; a1 = a2 = b0 = b1 = b2 = 0.0f;
+                break;
+        }
+
+        // Normalize coefficients by dividing by a0
+        b0 /= a0;
+        b1 /= a0;
+        b2 /= a0;
+        a1 /= a0;
+        a2 /= a0;
+        a0 = 1.0f;
+    }
+
+    // Process a single input sample and return the output
+    float process(float input) {
+        float output = b0 * input + b1 * x1 + b2 * x2 - a1 * y1 - a2 * y2;
+
+        // Update delay lines
+        x2 = x1;
+        x1 = input;
+        y2 = y1;
+        y1 = output;
+
+        return output;
+    }
+};
 
 // Function to check OpenGL errors
 void check_gl_error() {
@@ -84,116 +173,6 @@ float generate_emg_signal(float t) {
     emg += dist(gen);
 
     return emg;
-}
-
-// High-pass filter to remove low-frequency noise
-float highpass_filter(float input, float& x1, float& x2, float& y1, float& y2) {
-    float omega = 2.0f * M_PI * HIGHPASS_CUTOFF / SAMPLE_RATE;
-    float alpha = sin(omega) / (2.0f * 1.0f);
-
-    float a0 = 1.0f + alpha;
-    float a1 = -2.0f * cos(omega);
-    float a2 = 1.0f - alpha;
-    float b0 = (1.0f + cos(omega)) / 2.0f;
-    float b1 = -(1.0f + cos(omega));
-    float b2 = (1.0f + cos(omega)) / 2.0f;
-
-    b0 /= a0;
-    b1 /= a0;
-    b2 /= a0;
-    a1 /= a0;
-    a2 /= a0;
-    a0 = 1.0f;
-
-    float output = b0 * input + b1 * x1 + b2 * x2 - a1 * y1 - a2 * y2;
-    x2 = x1;
-    x1 = input;
-    y2 = y1;
-    y1 = output;
-
-    return output;
-}
-
-// Second-order Butterworth band-pass filter
-float bandpass_filter(float input, float& x1, float& x2, float& y1, float& y2) {
-    float wc = 2.0f * M_PI * sqrt(BANDPASS_LOW * BANDPASS_HIGH) / SAMPLE_RATE;
-    float bw = 2.0f * M_PI * (BANDPASS_HIGH - BANDPASS_LOW) / SAMPLE_RATE;
-
-    float alpha = sin(bw) * sinh(log(2.0f) / 2.0f * 1.0f * M_PI / 2.0f);
-    float cosw = cos(wc);
-
-    float a0 = 1.0f + alpha;
-    float a1 = -2.0f * cosw;
-    float a2 = 1.0f - alpha;
-    float b0 = alpha;
-    float b1 = 0.0f;
-    float b2 = -alpha;
-
-    b0 /= a0;
-    b1 /= a0;
-    b2 /= a0;
-    a1 /= a0;
-    a2 /= a0;
-    a0 = 1.0f;
-
-    float output = b0 * input + b1 * x1 + b2 * x2 - a1 * y1 - a2 * y2;
-
-    x2 = x1;
-    x1 = input;
-    y2 = y1;
-    y1 = output;
-
-    return output;
-}
-
-// Notch filter to remove power line noise
-float notch_filter(float input, float& x1, float& x2, float& y1, float& y2) {
-    float omega = 2.0f * M_PI * NOTCH_FREQ / SAMPLE_RATE;
-    float alpha = sin(omega) / (2.0f * NOTCH_Q);
-
-    float a0 = 1.0f + alpha;
-    float a1 = -2.0f * cos(omega);
-    float a2 = 1.0f - alpha;
-    float b0 = 1.0f;
-    float b1 = -2.0f * cos(omega);
-    float b2 = 1.0f;
-
-    float output = (b0 * input + b1 * x1 + b2 * x2 - a1 * y1 - a2 * y2) / a0;
-
-    x2 = x1;
-    x1 = input;
-    y2 = y1;
-    y1 = output;
-
-    return output;
-}
-
-// Low-pass filter for envelope detection
-float lowpass_filter(float input, float& x1, float& x2, float& y1, float& y2) {
-    float omega = 2.0f * M_PI * LOWPASS_CUTOFF / SAMPLE_RATE;
-    float alpha = sin(omega) / (2.0f * 1.0f);
-
-    float a0 = 1.0f + alpha;
-    float a1 = -2.0f * cos(omega);
-    float a2 = 1.0f - alpha;
-    float b0 = (1.0f - cos(omega)) / 2.0f;
-    float b1 = 1.0f - cos(omega);
-    float b2 = (1.0f - cos(omega)) / 2.0f;
-
-    b0 /= a0;
-    b1 /= a0;
-    b2 /= a0;
-    a1 /= a0;
-    a2 /= a0;
-    a0 = 1.0f;
-
-    float output = b0 * input + b1 * x1 + b2 * x2 - a1 * y1 - a2 * y2;
-    x2 = x1;
-    x1 = input;
-    y2 = y1;
-    y1 = output;
-
-    return output;
 }
 
 // Rectifier (absolute value)
@@ -316,22 +295,22 @@ int main() {
 
     std::cout << "OpenGL setup complete, entering main loop..." << std::endl;
 
-    float x1_hp = 0.0f, x2_hp = 0.0f, y1_hp = 0.0f, y2_hp = 0.0f; // High-pass
-    float x1_bp = 0.0f, x2_bp = 0.0f, y1_bp = 0.0f, y2_bp = 0.0f; // Band-pass
-    float x1_n = 0.0f, x2_n = 0.0f, y1_n = 0.0f, y2_n = 0.0f; // Notch
-    float x1_lp = 0.0f, x2_lp = 0.0f, y1_lp = 0.0f, y2_lp = 0.0f; // Low-pass
+    // Create filter instances
+    Filter highPassFilter(FilterType::HighPass, SAMPLE_RATE, HIGHPASS_CUTOFF);
+    Filter bandPassFilter(FilterType::BandPass, SAMPLE_RATE, BANDPASS_LOW, BANDPASS_HIGH);
+    Filter lowPassFilter(FilterType::LowPass, SAMPLE_RATE, LOWPASS_CUTOFF);
+
     float t = 0.0f;
 
     while (!glfwWindowShouldClose(window)) {
         float raw = generate_emg_signal(t);
-        float highpassed = highpass_filter(raw, x1_hp, x2_hp, y1_hp, y2_hp);
-        float bandpass_filtered = bandpass_filter(highpassed, x1_bp, x2_bp, y1_bp, y2_bp);
-        float notched = notch_filter(bandpass_filtered, x1_n, x2_n, y1_n, y2_n);
-        float rectified = rectify(notched);
-        float enveloped = lowpass_filter(rectified, x1_lp, x2_lp, y1_lp, y2_lp);
+        float highpassed = highPassFilter.process(raw);
+        float bandpass_filtered = bandPassFilter.process(highpassed);
+        float rectified = rectify(bandpass_filtered);
+        float enveloped = lowPassFilter.process(rectified);
 
         raw_signal[buffer_index] = raw;
-        filtered_signal[buffer_index] = notched;
+        filtered_signal[buffer_index] = bandpass_filtered;
         envelope_signal[buffer_index] = enveloped;
         buffer_index = (buffer_index + 1) % BUFFER_SIZE;
 
@@ -342,7 +321,7 @@ int main() {
             float max_filtered = *std::max_element(filtered_signal.begin(), filtered_signal.end(), [](float a, float b) { return std::abs(a) < std::abs(b); });
             float max_envelope = *std::max_element(envelope_signal.begin(), envelope_signal.end());
             std::cout << "Raw: " << raw << ", High-passed: " << highpassed << ", Band-passed: " << bandpass_filtered 
-                      << ", Notched: " << notched << ", Rectified: " << rectified << ", Enveloped: " << enveloped << std::endl;
+                      << ", Rectified: " << rectified << ", Enveloped: " << enveloped << std::endl;
             std::cout << "Max Raw Amplitude: " << max_raw << ", Max Filtered Amplitude: " << max_filtered 
                       << ", Max Envelope: " << max_envelope << std::endl;
         }
