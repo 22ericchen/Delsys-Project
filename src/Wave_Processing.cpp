@@ -10,22 +10,22 @@
 
 // Constants
 const int WINDOW_WIDTH = 800;
-const int WINDOW_HEIGHT = 600;
-const int BUFFER_SIZE = 1000; // Number of samples to display
-const float SAMPLE_RATE = 2000.0f; // Hz
-const float TIME_STEP = 1.0f / SAMPLE_RATE;
+const int WINDOW_HEIGHT = 900;
 
 // Synthetic EMG signal parameters
+const float SAMPLE_RATE = 2000.0f; // Hz
+const float TIME_STEP = 1.0f / SAMPLE_RATE;
+const int BUFFER_SIZE = 1000; // Number of samples to display
 const float EMG_FREQ = 20.0f; // Base EMG frequency (Hz)
 const float NOISE_AMPLITUDE = 0.2f;
-const float POWER_LINE_FREQ = 10.0f; // Power line interference frequency (Hz)
+const float POWER_LINE_FREQ = 10.0f; 
 const float POWER_LINE_AMPLITUDE = 0.3f;
 
-// Filter parameters
-const float HIGHPASS_CUTOFF = 5.0f; // High-pass cutoff (Hz)
-const float BANDPASS_LOW = 5.0f; // Hz
-const float BANDPASS_HIGH = 50.0f; // Hz
-const float LOWPASS_CUTOFF = 2.0f; // Low-pass cutoff for envelope (Hz)
+// Filter cutoff frequencies
+const float HIGHPASS_CUTOFF = 5.0f; 
+const float BANDPASS_LOW = 5.0f;
+const float BANDPASS_HIGH = 50.0f; 
+const float LOWPASS_CUTOFF = 2.0f;
 
 // Circular buffers for raw, filtered, and envelope signals
 std::vector<float> raw_signal(BUFFER_SIZE, 0.0f);
@@ -49,7 +49,7 @@ enum class FilterType {
     LowPass
 };
 
-// Filter class to abstract IIR filter implementation
+// Filter class
 class Filter {
 private:
     // Coefficients for the IIR difference equation
@@ -182,7 +182,7 @@ float rectify(float input) {
 
 // Normalize signal for visualization
 float normalize_for_display(float value, float max_amplitude) {
-    const float display_range = 0.8f;
+    const float display_range = 0.5f; // Amplitude range to prevent overlap
     if (max_amplitude == 0.0f) return value;
     return (value / max_amplitude) * display_range;
 }
@@ -201,47 +201,68 @@ void render_signals() {
         max_envelope = std::max(max_envelope, envelope_signal[i]);
     }
 
-    // Draw raw signal (top)
+    // Draw raw signal (top, centered at y = 0.75)
     glColor3f(1.0f, 0.0f, 0.0f); // Red
     check_gl_error();
     glBegin(GL_LINE_STRIP);
     for (int i = 0; i < BUFFER_SIZE; ++i) {
         float x = -1.0f + 2.0f * i / (float)(BUFFER_SIZE - 1);
-        float y = normalize_for_display(raw_signal[(buffer_index + i) % BUFFER_SIZE], max_raw) + 0.5f;
+        float y = 0.75f + normalize_for_display(raw_signal[(buffer_index + i) % BUFFER_SIZE], max_raw);
         glVertex2f(x, y);
     }
     glEnd();
     check_gl_error();
 
-    // Draw filtered signal (middle)
+    // Draw zero line for raw signal (at y = 0.75)
+    glColor3f(0.5f, 0.5f, 0.5f); // Gray
+    glBegin(GL_LINES);
+    glVertex2f(-1.0f, 0.75f);
+    glVertex2f(1.0f, 0.75f);
+    glEnd();
+
+    // Draw filtered signal (middle, centered at y = 0.0)
     glColor3f(0.0f, 1.0f, 0.0f); // Green
     glBegin(GL_LINE_STRIP);
     for (int i = 0; i < BUFFER_SIZE; ++i) {
         float x = -1.0f + 2.0f * i / (float)(BUFFER_SIZE - 1);
-        float y = normalize_for_display(filtered_signal[(buffer_index + i) % BUFFER_SIZE], max_filtered);
+        float y = 0.0f + normalize_for_display(filtered_signal[(buffer_index + i) % BUFFER_SIZE], max_filtered);
         glVertex2f(x, y);
     }
     glEnd();
     check_gl_error();
 
-    // Draw envelope signal (bottom)
+    // Draw zero line for filtered signal (at y = 0.0)
+    glColor3f(0.5f, 0.5f, 0.5f); // Gray
+    glBegin(GL_LINES);
+    glVertex2f(-1.0f, 0.0f);
+    glVertex2f(1.0f, 0.0f);
+    glEnd();
+
+    // Draw envelope signal (bottom, centered at y = -0.75)
     glColor3f(0.0f, 0.0f, 1.0f); // Blue
     glBegin(GL_LINE_STRIP);
     for (int i = 0; i < BUFFER_SIZE; ++i) {
         float x = -1.0f + 2.0f * i / (float)(BUFFER_SIZE - 1);
-        float y = normalize_for_display(envelope_signal[(buffer_index + i) % BUFFER_SIZE], max_envelope) - 0.5f;
+        float y = -0.75f + normalize_for_display(envelope_signal[(buffer_index + i) % BUFFER_SIZE], max_envelope);
         glVertex2f(x, y);
     }
     glEnd();
     check_gl_error();
 
+    // Draw zero line for envelope signal (at y = -0.75)
+    glColor3f(0.5f, 0.5f, 0.5f); // Gray
+    glBegin(GL_LINES);
+    glVertex2f(-1.0f, -0.75f);
+    glVertex2f(1.0f, -0.75f);
+    glEnd();
+
     // Draw separator lines
     glColor3f(1.0f, 1.0f, 1.0f); // White
     glBegin(GL_LINES);
-    glVertex2f(-1.0f, 0.33f); // Separator between raw and filtered
-    glVertex2f(1.0f, 0.33f);
-    glVertex2f(-1.0f, -0.33f); // Separator between filtered and envelope
-    glVertex2f(1.0f, -0.33f);
+    glVertex2f(-1.0f, 0.0f); // Separator between raw and filtered
+    glVertex2f(1.0f, 0.0f);
+    glVertex2f(-1.0f, -0.75f); // Separator between filtered and envelope
+    glVertex2f(1.0f, -0.75f);
     glEnd();
     check_gl_error();
 }
@@ -289,7 +310,7 @@ int main() {
     check_gl_error();
     glMatrixMode(GL_PROJECTION);
     glLoadIdentity();
-    glOrtho(-1.0, 1.0, -1.0, 1.0, -1.0, 1.0);
+    glOrtho(-1.0, 1.0, -1.5, 1.5, -1.0, 1.0);
     glMatrixMode(GL_MODELVIEW);
     check_gl_error();
 
@@ -303,12 +324,13 @@ int main() {
     float t = 0.0f;
 
     while (!glfwWindowShouldClose(window)) {
+        // Processing chain
         float raw = generate_emg_signal(t);
         float highpassed = highPassFilter.process(raw);
         float bandpass_filtered = bandPassFilter.process(highpassed);
         float rectified = rectify(bandpass_filtered);
         float enveloped = lowPassFilter.process(rectified);
-
+        
         raw_signal[buffer_index] = raw;
         filtered_signal[buffer_index] = bandpass_filtered;
         envelope_signal[buffer_index] = enveloped;
