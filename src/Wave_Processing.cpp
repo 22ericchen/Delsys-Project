@@ -22,24 +22,27 @@ const float POWER_LINE_FREQ = 10.0f; // Power line interference frequency (Hz)
 const float POWER_LINE_AMPLITUDE = 0.3f;
 
 // Filter parameters
+const float HIGHPASS_CUTOFF = 5.0f; // High-pass cutoff (Hz)
 const float BANDPASS_LOW = 5.0f; // Hz
 const float BANDPASS_HIGH = 50.0f; // Hz
 const float NOTCH_FREQ = 10.0f; // Hz
-const float NOTCH_Q = 30.0f; // Quality factor for notch filter (higher Q = narrower notch)
+const float NOTCH_Q = 30.0f; // Quality factor for notch filter
+const float LOWPASS_CUTOFF = 2.0f; // Low-pass cutoff for envelope (Hz)
 
-// Circular buffer for raw and filtered signals
+// Circular buffers for raw, filtered, and envelope signals
 std::vector<float> raw_signal(BUFFER_SIZE, 0.0f);
 std::vector<float> filtered_signal(BUFFER_SIZE, 0.0f);
+std::vector<float> envelope_signal(BUFFER_SIZE, 0.0f);
 int buffer_index = 0;
 
 // Random number generator for noise and EMG variation
 std::random_device rd;
 std::mt19937 gen(rd());
-std::uniform_real_distribution<float> dist(-NOISE_AMPLITUDE, NOISE_AMPLITUDE); // For background noise
-std::uniform_real_distribution<float> amp_dist(0.8f, 1.2f); // For amplitude variation (0.8 to 1.2)
-std::uniform_real_distribution<float> freq_dist(0.9f, 1.1f); // For frequency variation (0.9 to 1.1)
-std::uniform_real_distribution<float> burst_dist(0.0f, 1.0f); // For random burst probability
-std::uniform_real_distribution<float> burst_scale(1.0f, 3.0f); // For burst amplitude scaling
+std::uniform_real_distribution<float> dist(-NOISE_AMPLITUDE, NOISE_AMPLITUDE);
+std::uniform_real_distribution<float> amp_dist(0.8f, 1.2f);
+std::uniform_real_distribution<float> freq_dist(0.9f, 1.1f);
+std::uniform_real_distribution<float> burst_dist(0.0f, 1.0f);
+std::uniform_real_distribution<float> burst_scale(1.0f, 3.0f);
 
 // Function to check OpenGL errors
 void check_gl_error() {
@@ -51,45 +54,64 @@ void check_gl_error() {
 
 // Generate synthetic EMG signal with randomness
 float generate_emg_signal(float t) {
-    static float phase1 = 0.0f; // Phase for first EMG component
-    static float phase2 = 0.0f; // Phase for second EMG component
-    static float burst_factor = 1.0f; // Burst scaling factor
-    static int burst_duration = 0; // Counter for burst duration
+    static float phase1 = 0.0f;
+    static float phase2 = 0.0f;
+    static float burst_factor = 1.0f;
+    static int burst_duration = 0;
 
-    // Update burst behavior every 50 samples (approximately every 25ms at 2000 Hz)
     if (buffer_index % 50 == 0) {
-        // Randomly decide if a burst occurs (20% chance)
         if (burst_dist(gen) < 0.2f) {
-            burst_factor = burst_scale(gen); // Scale amplitude randomly between 1x and 3x
-            burst_duration = 100; // Burst lasts for 100 samples (50ms)
+            burst_factor = burst_scale(gen);
+            burst_duration = 100;
         } else if (burst_duration <= 0) {
-            burst_factor = 1.0f; // Reset to normal amplitude
+            burst_factor = 1.0f;
         }
     }
     if (burst_duration > 0) {
         burst_duration--;
     }
 
-    // Randomly vary amplitude and frequency
-    float amp1 = 0.5f * amp_dist(gen); // Random amplitude for first component
-    float amp2 = 0.3f * amp_dist(gen); // Random amplitude for second component
-    float freq1 = EMG_FREQ * freq_dist(gen); // Random frequency variation for first component
-    float freq2 = (EMG_FREQ * 1.5f) * freq_dist(gen); // Random frequency variation for second component
+    float amp1 = 0.5f * amp_dist(gen);
+    float amp2 = 0.3f * amp_dist(gen);
+    float freq1 = EMG_FREQ * freq_dist(gen);
+    float freq2 = (EMG_FREQ * 1.5f) * freq_dist(gen);
 
-    // Update phases
     phase1 += 2.0f * M_PI * freq1 * TIME_STEP;
     phase2 += 2.0f * M_PI * freq2 * TIME_STEP;
 
-    // Generate EMG signal with random variations and bursts
     float emg = burst_factor * (amp1 * sin(phase1) + amp2 * sin(phase2));
-
-    // Add power line interference
     emg += POWER_LINE_AMPLITUDE * sin(2.0f * M_PI * POWER_LINE_FREQ * t);
-
-    // Add random noise
     emg += dist(gen);
 
     return emg;
+}
+
+// High-pass filter to remove low-frequency noise
+float highpass_filter(float input, float& x1, float& x2, float& y1, float& y2) {
+    float omega = 2.0f * M_PI * HIGHPASS_CUTOFF / SAMPLE_RATE;
+    float alpha = sin(omega) / (2.0f * 1.0f);
+
+    float a0 = 1.0f + alpha;
+    float a1 = -2.0f * cos(omega);
+    float a2 = 1.0f - alpha;
+    float b0 = (1.0f + cos(omega)) / 2.0f;
+    float b1 = -(1.0f + cos(omega));
+    float b2 = (1.0f + cos(omega)) / 2.0f;
+
+    b0 /= a0;
+    b1 /= a0;
+    b2 /= a0;
+    a1 /= a0;
+    a2 /= a0;
+    a0 = 1.0f;
+
+    float output = b0 * input + b1 * x1 + b2 * x2 - a1 * y1 - a2 * y2;
+    x2 = x1;
+    x1 = input;
+    y2 = y1;
+    y1 = output;
+
+    return output;
 }
 
 // Second-order Butterworth band-pass filter
@@ -146,6 +168,39 @@ float notch_filter(float input, float& x1, float& x2, float& y1, float& y2) {
     return output;
 }
 
+// Low-pass filter for envelope detection
+float lowpass_filter(float input, float& x1, float& x2, float& y1, float& y2) {
+    float omega = 2.0f * M_PI * LOWPASS_CUTOFF / SAMPLE_RATE;
+    float alpha = sin(omega) / (2.0f * 1.0f);
+
+    float a0 = 1.0f + alpha;
+    float a1 = -2.0f * cos(omega);
+    float a2 = 1.0f - alpha;
+    float b0 = (1.0f - cos(omega)) / 2.0f;
+    float b1 = 1.0f - cos(omega);
+    float b2 = (1.0f - cos(omega)) / 2.0f;
+
+    b0 /= a0;
+    b1 /= a0;
+    b2 /= a0;
+    a1 /= a0;
+    a2 /= a0;
+    a0 = 1.0f;
+
+    float output = b0 * input + b1 * x1 + b2 * x2 - a1 * y1 - a2 * y2;
+    x2 = x1;
+    x1 = input;
+    y2 = y1;
+    y1 = output;
+
+    return output;
+}
+
+// Rectifier (absolute value)
+float rectify(float input) {
+    return std::abs(input);
+}
+
 // Normalize signal for visualization
 float normalize_for_display(float value, float max_amplitude) {
     const float display_range = 0.8f;
@@ -160,12 +215,15 @@ void render_signals() {
 
     float max_raw = 0.0f;
     float max_filtered = 0.0f;
+    float max_envelope = 0.0f;
     for (int i = 0; i < BUFFER_SIZE; ++i) {
         max_raw = std::max(max_raw, std::abs(raw_signal[i]));
         max_filtered = std::max(max_filtered, std::abs(filtered_signal[i]));
+        max_envelope = std::max(max_envelope, envelope_signal[i]);
     }
 
-    glColor3f(1.0f, 0.0f, 0.0f);
+    // Draw raw signal (top)
+    glColor3f(1.0f, 0.0f, 0.0f); // Red
     check_gl_error();
     glBegin(GL_LINE_STRIP);
     for (int i = 0; i < BUFFER_SIZE; ++i) {
@@ -176,20 +234,35 @@ void render_signals() {
     glEnd();
     check_gl_error();
 
-    glColor3f(0.0f, 1.0f, 0.0f);
+    // Draw filtered signal (middle)
+    glColor3f(0.0f, 1.0f, 0.0f); // Green
     glBegin(GL_LINE_STRIP);
     for (int i = 0; i < BUFFER_SIZE; ++i) {
         float x = -1.0f + 2.0f * i / (float)(BUFFER_SIZE - 1);
-        float y = normalize_for_display(filtered_signal[(buffer_index + i) % BUFFER_SIZE], max_filtered) - 0.5f;
+        float y = normalize_for_display(filtered_signal[(buffer_index + i) % BUFFER_SIZE], max_filtered);
         glVertex2f(x, y);
     }
     glEnd();
     check_gl_error();
 
-    glColor3f(1.0f, 1.0f, 1.0f);
+    // Draw envelope signal (bottom)
+    glColor3f(0.0f, 0.0f, 1.0f); // Blue
+    glBegin(GL_LINE_STRIP);
+    for (int i = 0; i < BUFFER_SIZE; ++i) {
+        float x = -1.0f + 2.0f * i / (float)(BUFFER_SIZE - 1);
+        float y = normalize_for_display(envelope_signal[(buffer_index + i) % BUFFER_SIZE], max_envelope) - 0.5f;
+        glVertex2f(x, y);
+    }
+    glEnd();
+    check_gl_error();
+
+    // Draw separator lines
+    glColor3f(1.0f, 1.0f, 1.0f); // White
     glBegin(GL_LINES);
-    glVertex2f(-1.0f, 0.0f);
-    glVertex2f(1.0f, 0.0f);
+    glVertex2f(-1.0f, 0.33f); // Separator between raw and filtered
+    glVertex2f(1.0f, 0.33f);
+    glVertex2f(-1.0f, -0.33f); // Separator between filtered and envelope
+    glVertex2f(1.0f, -0.33f);
     glEnd();
     check_gl_error();
 }
@@ -197,7 +270,8 @@ void render_signals() {
 int main() {
     std::cout << "Starting program..." << std::endl;
     std::cout << "Red (Top): Initial Signal (Raw EMG)" << std::endl;
-    std::cout << "Green (Bottom): Output Signal (Filtered EMG)" << std::endl;
+    std::cout << "Green (Middle): Filtered Signal" << std::endl;
+    std::cout << "Blue (Bottom): Envelope Signal (Rectified + Smoothed)" << std::endl;
 
     if (!glfwInit()) {
         std::cerr << "Failed to initialize GLFW" << std::endl;
@@ -207,7 +281,7 @@ int main() {
 
     glfwWindowHint(GLFW_CONTEXT_VERSION_MAJOR, 2);
     glfwWindowHint(GLFW_CONTEXT_VERSION_MINOR, 1);
-    GLFWwindow* window = glfwCreateWindow(WINDOW_WIDTH, WINDOW_HEIGHT, "EMG Signal Filtering (Red: Raw, Green: Filtered)", nullptr, nullptr);
+    GLFWwindow* window = glfwCreateWindow(WINDOW_WIDTH, WINDOW_HEIGHT, "EMG Signal Filtering", nullptr, nullptr);
     if (!window) {
         std::cerr << "Failed to create GLFW window" << std::endl;
         glfwTerminate();
@@ -242,17 +316,23 @@ int main() {
 
     std::cout << "OpenGL setup complete, entering main loop..." << std::endl;
 
-    float x1_bp = 0.0f, x2_bp = 0.0f, y1_bp = 0.0f, y2_bp = 0.0f;
-    float x1_n = 0.0f, x2_n = 0.0f, y1_n = 0.0f, y2_n = 0.0f;
+    float x1_hp = 0.0f, x2_hp = 0.0f, y1_hp = 0.0f, y2_hp = 0.0f; // High-pass
+    float x1_bp = 0.0f, x2_bp = 0.0f, y1_bp = 0.0f, y2_bp = 0.0f; // Band-pass
+    float x1_n = 0.0f, x2_n = 0.0f, y1_n = 0.0f, y2_n = 0.0f; // Notch
+    float x1_lp = 0.0f, x2_lp = 0.0f, y1_lp = 0.0f, y2_lp = 0.0f; // Low-pass
     float t = 0.0f;
 
     while (!glfwWindowShouldClose(window)) {
         float raw = generate_emg_signal(t);
-        float filtered = bandpass_filter(raw, x1_bp, x2_bp, y1_bp, y2_bp);
-        filtered = notch_filter(filtered, x1_n, x2_n, y1_n, y2_n);
+        float highpassed = highpass_filter(raw, x1_hp, x2_hp, y1_hp, y2_hp);
+        float bandpass_filtered = bandpass_filter(highpassed, x1_bp, x2_bp, y1_bp, y2_bp);
+        float notched = notch_filter(bandpass_filtered, x1_n, x2_n, y1_n, y2_n);
+        float rectified = rectify(notched);
+        float enveloped = lowpass_filter(rectified, x1_lp, x2_lp, y1_lp, y2_lp);
 
         raw_signal[buffer_index] = raw;
-        filtered_signal[buffer_index] = filtered;
+        filtered_signal[buffer_index] = notched;
+        envelope_signal[buffer_index] = enveloped;
         buffer_index = (buffer_index + 1) % BUFFER_SIZE;
 
         t += TIME_STEP;
@@ -260,7 +340,11 @@ int main() {
         if (buffer_index % 100 == 0) {
             float max_raw = *std::max_element(raw_signal.begin(), raw_signal.end(), [](float a, float b) { return std::abs(a) < std::abs(b); });
             float max_filtered = *std::max_element(filtered_signal.begin(), filtered_signal.end(), [](float a, float b) { return std::abs(a) < std::abs(b); });
-            std::cout << "Max Raw Amplitude: " << max_raw << ", Max Filtered Amplitude: " << max_filtered << std::endl;
+            float max_envelope = *std::max_element(envelope_signal.begin(), envelope_signal.end());
+            std::cout << "Raw: " << raw << ", High-passed: " << highpassed << ", Band-passed: " << bandpass_filtered 
+                      << ", Notched: " << notched << ", Rectified: " << rectified << ", Enveloped: " << enveloped << std::endl;
+            std::cout << "Max Raw Amplitude: " << max_raw << ", Max Filtered Amplitude: " << max_filtered 
+                      << ", Max Envelope: " << max_envelope << std::endl;
         }
 
         render_signals();
