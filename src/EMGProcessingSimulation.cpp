@@ -1,12 +1,12 @@
+// EmgSimulation.cpp
 #include <GLFW/glfw3.h>
 #include <vector>
-#include <cmath>
 #include <random>
 #include <iostream>
 #include <algorithm>
+#include "Filter.h"
 
-// Define M_PI for platforms where it's not defined
-#define M_PI 3.14159265358979323846
+#define PI 3.14159265358979323846
 
 // Constants
 const int WINDOW_WIDTH = 800;
@@ -18,14 +18,14 @@ const float TIME_STEP = 1.0f / SAMPLE_RATE;
 const int BUFFER_SIZE = 1000; // Number of samples to display
 const float EMG_FREQ = 20.0f; // Base EMG frequency (Hz)
 const float NOISE_AMPLITUDE = 0.2f;
-const float POWER_LINE_FREQ = 10.0f; 
+const float POWER_LINE_FREQ = 10.0f; // Power line interference frequency (Hz)
 const float POWER_LINE_AMPLITUDE = 0.3f;
 
-// Filter cutoff frequencies
-const float HIGHPASS_CUTOFF = 5.0f; 
-const float BANDPASS_LOW = 5.0f;
-const float BANDPASS_HIGH = 50.0f; 
-const float LOWPASS_CUTOFF = 2.0f;
+// Filter parameters
+const float HIGHPASS_CUTOFF = 5.0f; // High-pass cutoff (Hz)
+const float BANDPASS_LOW = 5.0f; // Hz
+const float BANDPASS_HIGH = 50.0f; // Hz
+const float LOWPASS_CUTOFF = 2.0f; // Low-pass cutoff for envelope (Hz)
 
 // Circular buffers for raw, filtered, and envelope signals
 std::vector<float> raw_signal(BUFFER_SIZE, 0.0f);
@@ -41,97 +41,6 @@ std::uniform_real_distribution<float> amp_dist(0.8f, 1.2f);
 std::uniform_real_distribution<float> freq_dist(0.9f, 1.1f);
 std::uniform_real_distribution<float> burst_dist(0.0f, 1.0f);
 std::uniform_real_distribution<float> burst_scale(1.0f, 3.0f);
-
-// Enum to define filter types
-enum class FilterType {
-    HighPass,
-    BandPass,
-    LowPass
-};
-
-// Filter class
-class Filter {
-private:
-    // Coefficients for the IIR difference equation
-    float b0, b1, b2; // Feedforward coefficients
-    float a0, a1, a2; // Feedback coefficients
-
-    // Delay lines
-    float x1, x2, y1, y2;
-
-public:
-    Filter(FilterType type, float sample_rate, float freq1, float freq2 = 0.0f, float q = 1.0f) {
-        // Initialize delay lines to zero
-        x1 = x2 = y1 = y2 = 0.0f;
-
-        // Compute coefficients based on filter type
-        switch (type) {
-            case FilterType::HighPass: {
-                float omega = 2.0f * M_PI * freq1 / sample_rate;
-                float alpha = sin(omega) / (2.0f * q);
-
-                a0 = 1.0f + alpha;
-                a1 = -2.0f * cos(omega);
-                a2 = 1.0f - alpha;
-                b0 = (1.0f + cos(omega)) / 2.0f;
-                b1 = -(1.0f + cos(omega));
-                b2 = (1.0f + cos(omega)) / 2.0f;
-                break;
-            }
-            case FilterType::BandPass: {
-                float wc = 2.0f * M_PI * sqrt(freq1 * freq2) / sample_rate;
-                float bw = 2.0f * M_PI * (freq2 - freq1) / sample_rate;
-
-                float alpha = sin(bw) * sinh(log(2.0f) / 2.0f * 1.0f * M_PI / 2.0f);
-                float cosw = cos(wc);
-
-                a0 = 1.0f + alpha;
-                a1 = -2.0f * cosw;
-                a2 = 1.0f - alpha;
-                b0 = alpha;
-                b1 = 0.0f;
-                b2 = -alpha;
-                break;
-            }
-            case FilterType::LowPass: {
-                float omega = 2.0f * M_PI * freq1 / sample_rate;
-                float alpha = sin(omega) / (2.0f * q);
-
-                a0 = 1.0f + alpha;
-                a1 = -2.0f * cos(omega);
-                a2 = 1.0f - alpha;
-                b0 = (1.0f - cos(omega)) / 2.0f;
-                b1 = 1.0f - cos(omega);
-                b2 = (1.0f - cos(omega)) / 2.0f;
-                break;
-            }
-            default:
-                a0 = 1.0f; a1 = a2 = b0 = b1 = b2 = 0.0f;
-                break;
-        }
-
-        // Normalize coefficients by dividing by a0
-        b0 /= a0;
-        b1 /= a0;
-        b2 /= a0;
-        a1 /= a0;
-        a2 /= a0;
-        a0 = 1.0f;
-    }
-
-    // Process a single input sample and return the output
-    float process(float input) {
-        float output = b0 * input + b1 * x1 + b2 * x2 - a1 * y1 - a2 * y2;
-
-        // Update delay lines
-        x2 = x1;
-        x1 = input;
-        y2 = y1;
-        y1 = output;
-
-        return output;
-    }
-};
 
 // Function to check OpenGL errors
 void check_gl_error() {
@@ -165,19 +74,14 @@ float generate_emg_signal(float t) {
     float freq1 = EMG_FREQ * freq_dist(gen);
     float freq2 = (EMG_FREQ * 1.5f) * freq_dist(gen);
 
-    phase1 += 2.0f * M_PI * freq1 * TIME_STEP;
-    phase2 += 2.0f * M_PI * freq2 * TIME_STEP;
+    phase1 += 2.0f * PI * freq1 * TIME_STEP;
+    phase2 += 2.0f * PI * freq2 * TIME_STEP;
 
     float emg = burst_factor * (amp1 * sin(phase1) + amp2 * sin(phase2));
-    emg += POWER_LINE_AMPLITUDE * sin(2.0f * M_PI * POWER_LINE_FREQ * t);
+    emg += POWER_LINE_AMPLITUDE * sin(2.0f * PI * POWER_LINE_FREQ * t);
     emg += dist(gen);
 
     return emg;
-}
-
-// Rectifier (absolute value)
-float rectify(float input) {
-    return std::abs(input);
 }
 
 // Normalize signal for visualization
@@ -324,13 +228,12 @@ int main() {
     float t = 0.0f;
 
     while (!glfwWindowShouldClose(window)) {
-        // Processing chain
         float raw = generate_emg_signal(t);
         float highpassed = highPassFilter.process(raw);
         float bandpass_filtered = bandPassFilter.process(highpassed);
         float rectified = rectify(bandpass_filtered);
         float enveloped = lowPassFilter.process(rectified);
-        
+
         raw_signal[buffer_index] = raw;
         filtered_signal[buffer_index] = bandpass_filtered;
         envelope_signal[buffer_index] = enveloped;

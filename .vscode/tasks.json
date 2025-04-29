@@ -2,15 +2,59 @@
     "version": "2.0.0",
     "tasks": [
         {
-            "type": "cppbuild",
-            "label": "C/C++: g++.exe build active file",
+            "type": "shell",
+            "label": "Compile Filter.cpp",
             "command": "C:\\msys64\\ucrt64\\bin\\g++.exe",
             "args": [
                 "-fdiagnostics-color=always",
                 "-g",
-                "${file}",
                 "-I",
                 "${workspaceFolder}/include",
+                "-c",
+                "${workspaceFolder}/src/Filter.cpp",
+                "-o",
+                "${workspaceFolder}/src/Filter.o"
+            ],
+            "options": {
+                "cwd": "${workspaceFolder}/src"
+            },
+            "problemMatcher": [
+                "$gcc"
+            ],
+            "group": "build",
+            "detail": "Compile Filter.cpp into Filter.o"
+        },
+        {
+            "type": "shell",
+            "label": "Compile EMGProcessingSimulation.cpp",
+            "command": "C:\\msys64\\ucrt64\\bin\\g++.exe",
+            "args": [
+                "-fdiagnostics-color=always",
+                "-g",
+                "-I",
+                "${workspaceFolder}/include",
+                "-c",
+                "${workspaceFolder}/src/EMGProcessingSimulation.cpp",
+                "-o",
+                "${workspaceFolder}/src/EMGProcessingSimulation.o"
+            ],
+            "options": {
+                "cwd": "${workspaceFolder}/src"
+            },
+            "problemMatcher": [
+                "$gcc"
+            ],
+            "group": "build",
+            "detail": "Compile EMGProcessingSimulation.cpp into EMGProcessingSimulation.o",
+            "dependsOn": ["Compile Filter.cpp"]
+        },
+        {
+            "type": "shell",
+            "label": "Link and Build Executable",
+            "command": "C:\\msys64\\ucrt64\\bin\\g++.exe",
+            "args": [
+                "${workspaceFolder}/src/Filter.o",
+                "${workspaceFolder}/src/EMGProcessingSimulation.o",
                 "-L",
                 "${workspaceFolder}/lib",
                 "-lglfw3",
@@ -19,19 +63,35 @@
                 "-luser32",
                 "-lkernel32",
                 "-o",
-                "${fileDirname}\\${fileBasenameNoExtension}.exe"
+                "${workspaceFolder}/run/EMGProcessingSimulation.exe"
             ],
             "options": {
-                "cwd": "C:\\msys64\\ucrt64\\bin"
+                "cwd": "${workspaceFolder}/src"
             },
             "problemMatcher": [
                 "$gcc"
             ],
+            "group": "build",
+            "detail": "Link object files and build executable in run folder",
+            "dependsOn": ["Compile EMGProcessingSimulation.cpp"]
+        },
+        {
+            "type": "shell",
+            "label": "Copy GLFW DLL",
+            "command": "copy",
+            "args": [
+                "${workspaceFolder}glfw3.dll",
+                "${workspaceFolder}\\run\\glfw3.dll"
+            ],
+            "options": {
+                "cwd": "${workspaceFolder}"
+            },
             "group": {
                 "kind": "build",
                 "isDefault": true
             },
-            "detail": "compiler: C:\\msys64\\ucrt64\\bin\\g++.exe"
+            "detail": "Copy GLFW DLL to run folder",
+            "dependsOn": ["Link and Build Executable"]
         }
     ]
 }
