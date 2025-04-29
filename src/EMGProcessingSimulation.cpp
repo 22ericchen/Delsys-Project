@@ -23,9 +23,9 @@ const float POWER_LINE_FREQ = 10.0f; // Power line interference frequency (Hz)
 const float POWER_LINE_AMPLITUDE = 0.3f; // Amplitude of power line interference
 
 // Filter parameters
-float adjustable_highpass_cutoff = 5.0f; // High-pass cutoff frequency (Hz), adjustable
+float HIGHPASS_CUTOFF = 5.0f; // High-pass cutoff frequency (Hz), adjustable
 const float BANDPASS_LOW = 5.0f; // Band-pass low cutoff frequency (Hz)
-float adjustable_bandpass_high = 50.0f; // Band-pass high cutoff frequency (Hz), adjustable
+float BANDPASS_HIGH = 50.0f; // Band-pass high cutoff frequency (Hz), adjustable
 const float LOWPASS_CUTOFF = 2.0f; // Low-pass cutoff for envelope (Hz)
 
 // Circular buffers to store the most recent samples for visualization
@@ -55,20 +55,20 @@ void key_callback(GLFWwindow* window, int key, int scancode, int action, int mod
     // Adjust filter parameters with arrow keys
     if (action == GLFW_PRESS || action == GLFW_REPEAT) {
         if (key == GLFW_KEY_UP) {
-            adjustable_highpass_cutoff += 0.5f;
-            std::cout << "High-pass cutoff increased to: " << adjustable_highpass_cutoff << " Hz" << std::endl;
+            HIGHPASS_CUTOFF += 0.5f;
+            std::cout << "High-pass cutoff increased to: " << HIGHPASS_CUTOFF << " Hz" << std::endl;
         }
         if (key == GLFW_KEY_DOWN) {
-            adjustable_highpass_cutoff = std::max(1.0f, adjustable_highpass_cutoff - 0.5f); // Ensure cutoff doesn't go below 1 Hz
-            std::cout << "High-pass cutoff decreased to: " << adjustable_highpass_cutoff << " Hz" << std::endl;
+            HIGHPASS_CUTOFF = std::max(1.0f, HIGHPASS_CUTOFF - 0.5f); // Ensure cutoff doesn't go below 1 Hz
+            std::cout << "High-pass cutoff decreased to: " << HIGHPASS_CUTOFF << " Hz" << std::endl;
         }
         if (key == GLFW_KEY_RIGHT) {
-            adjustable_bandpass_high += 5.0f;
-            std::cout << "Band-pass high cutoff increased to: " << adjustable_bandpass_high << " Hz" << std::endl;
+            BANDPASS_HIGH += 5.0f;
+            std::cout << "Band-pass high cutoff increased to: " << BANDPASS_HIGH << " Hz" << std::endl;
         }
         if (key == GLFW_KEY_LEFT) {
-            adjustable_bandpass_high = std::max(BANDPASS_LOW + 1.0f, adjustable_bandpass_high - 5.0f); // Ensure high cutoff doesn't go below low cutoff + 1 Hz
-            std::cout << "Band-pass high cutoff decreased to: " << adjustable_bandpass_high << " Hz" << std::endl;
+            BANDPASS_HIGH = std::max(BANDPASS_LOW + 1.0f, BANDPASS_HIGH - 5.0f); // Ensure high cutoff doesn't go below low cutoff + 1 Hz
+            std::cout << "Band-pass high cutoff decreased to: " << BANDPASS_HIGH << " Hz" << std::endl;
         }
     }
 }
@@ -220,8 +220,8 @@ int main() {
     std::cout << "Green (Middle): Filtered Signal" << std::endl;
     std::cout << "Blue (Bottom): Envelope Signal (Rectified + Smoothed)" << std::endl;
     std::cout << "Press SPACE to pause/resume the simulation" << std::endl;
-    std::cout << "Press UP/DOWN to adjust high-pass filter cutoff (current: " << adjustable_highpass_cutoff << " Hz)" << std::endl;
-    std::cout << "Press LEFT/RIGHT to adjust band-pass high cutoff (current: " << adjustable_bandpass_high << " Hz)" << std::endl;
+    std::cout << "Press UP/DOWN to adjust high-pass filter cutoff (current: " << HIGHPASS_CUTOFF << " Hz)" << std::endl;
+    std::cout << "Press LEFT/RIGHT to adjust band-pass high cutoff (current: " << BANDPASS_HIGH << " Hz)" << std::endl;
 
     if (!glfwInit()) {
         std::cerr << "Failed to initialize GLFW" << std::endl;
@@ -276,27 +276,27 @@ int main() {
     std::cout << "OpenGL setup complete, entering main loop..." << std::endl;
 
     // Create filter instances
-    Filter highPassFilter(FilterType::HighPass, SAMPLE_RATE, adjustable_highpass_cutoff);
-    Filter bandPassFilter(FilterType::BandPass, SAMPLE_RATE, BANDPASS_LOW, adjustable_bandpass_high);
+    Filter highPassFilter(FilterType::HighPass, SAMPLE_RATE, HIGHPASS_CUTOFF);
+    Filter bandPassFilter(FilterType::BandPass, SAMPLE_RATE, BANDPASS_LOW, BANDPASS_HIGH);
     Filter lowPassFilter(FilterType::LowPass, SAMPLE_RATE, LOWPASS_CUTOFF);
 
     float t = 0.0f;
-    float last_highpass_cutoff = adjustable_highpass_cutoff; // Track the last high-pass cutoff to detect changes
-    float last_bandpass_high = adjustable_bandpass_high; // Track the last band-pass high cutoff to detect changes
+    float last_highpass_cutoff = HIGHPASS_CUTOFF; // Track the last high-pass cutoff to detect changes
+    float last_bandpass_high = BANDPASS_HIGH; // Track the last band-pass high cutoff to detect changes
 
     while (!glfwWindowShouldClose(window)) {
         auto start = std::chrono::high_resolution_clock::now();
 
         // Reinitialize filters if their cutoffs have changed
-        if (adjustable_highpass_cutoff != last_highpass_cutoff) {
-            highPassFilter = Filter(FilterType::HighPass, SAMPLE_RATE, adjustable_highpass_cutoff);
-            last_highpass_cutoff = adjustable_highpass_cutoff;
-            std::cout << "High-pass filter reinitialized with cutoff: " << adjustable_highpass_cutoff << " Hz" << std::endl;
+        if (HIGHPASS_CUTOFF != last_highpass_cutoff) {
+            highPassFilter = Filter(FilterType::HighPass, SAMPLE_RATE, HIGHPASS_CUTOFF);
+            last_highpass_cutoff = HIGHPASS_CUTOFF;
+            std::cout << "High-pass filter reinitialized with cutoff: " << HIGHPASS_CUTOFF << " Hz" << std::endl;
         }
-        if (adjustable_bandpass_high != last_bandpass_high) {
-            bandPassFilter = Filter(FilterType::BandPass, SAMPLE_RATE, BANDPASS_LOW, adjustable_bandpass_high);
-            last_bandpass_high = adjustable_bandpass_high;
-            std::cout << "Band-pass filter reinitialized with high cutoff: " << adjustable_bandpass_high << " Hz" << std::endl;
+        if (BANDPASS_HIGH != last_bandpass_high) {
+            bandPassFilter = Filter(FilterType::BandPass, SAMPLE_RATE, BANDPASS_LOW, BANDPASS_HIGH);
+            last_bandpass_high = BANDPASS_HIGH;
+            std::cout << "Band-pass filter reinitialized with high cutoff: " << BANDPASS_HIGH << " Hz" << std::endl;
         }
 
         // Only update signals if not paused
