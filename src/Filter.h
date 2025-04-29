@@ -1,4 +1,3 @@
-// Filter.h
 #ifndef FILTER_H
 #define FILTER_H
 
@@ -9,7 +8,7 @@ enum class FilterType {
     LowPass
 };
 
-// Filter class to abstract IIR filter implementation
+// Filter class
 class Filter {
 private:
     // Coefficients for the IIR difference equation

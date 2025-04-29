@@ -1,4 +1,3 @@
-// Filter.cpp
 #include "Filter.h"
 #include <cmath>
 
