@@ -105,7 +105,7 @@ void render_signals() {
         max_envelope = std::max(max_envelope, envelope_signal[i]);
     }
 
-    // Draw raw signal (top, centered at y = 0.75)
+    // Render raw EMG signal
     glColor3f(1.0f, 0.0f, 0.0f); // Red
     check_gl_error();
     glBegin(GL_LINE_STRIP);
@@ -117,14 +117,14 @@ void render_signals() {
     glEnd();
     check_gl_error();
 
-    // Draw zero line for raw signal (at y = 0.75)
-    glColor3f(0.5f, 0.5f, 0.5f); // Gray
+    // raw EMG signal zero line
+    glColor3f(0.5f, 0.5f, 0.5f);
     glBegin(GL_LINES);
     glVertex2f(-1.0f, 0.75f);
     glVertex2f(1.0f, 0.75f);
     glEnd();
 
-    // Draw filtered signal (middle, centered at y = 0.0)
+    // Render signal after filtering through High-pass and Bandpass
     glColor3f(0.0f, 1.0f, 0.0f); // Green
     glBegin(GL_LINE_STRIP);
     for (int i = 0; i < BUFFER_SIZE; ++i) {
@@ -135,14 +135,14 @@ void render_signals() {
     glEnd();
     check_gl_error();
 
-    // Draw zero line for filtered signal (at y = 0.0)
-    glColor3f(0.5f, 0.5f, 0.5f); // Gray
+    // filtered signal zero line
+    glColor3f(0.5f, 0.5f, 0.5f);
     glBegin(GL_LINES);
     glVertex2f(-1.0f, 0.0f);
     glVertex2f(1.0f, 0.0f);
     glEnd();
 
-    // Draw envelope signal (bottom, centered at y = -0.75)
+    // Overall muscle activation intensity signal
     glColor3f(0.0f, 0.0f, 1.0f); // Blue
     glBegin(GL_LINE_STRIP);
     for (int i = 0; i < BUFFER_SIZE; ++i) {
@@ -153,22 +153,12 @@ void render_signals() {
     glEnd();
     check_gl_error();
 
-    // Draw zero line for envelope signal (at y = -0.75)
+    // Muscle activation intensity zero line
     glColor3f(0.5f, 0.5f, 0.5f); // Gray
     glBegin(GL_LINES);
     glVertex2f(-1.0f, -0.75f);
     glVertex2f(1.0f, -0.75f);
     glEnd();
-
-    // Draw separator lines
-    glColor3f(1.0f, 1.0f, 1.0f); // White
-    glBegin(GL_LINES);
-    glVertex2f(-1.0f, 0.0f); // Separator between raw and filtered
-    glVertex2f(1.0f, 0.0f);
-    glVertex2f(-1.0f, -0.75f); // Separator between filtered and envelope
-    glVertex2f(1.0f, -0.75f);
-    glEnd();
-    check_gl_error();
 }
 
 int main() {

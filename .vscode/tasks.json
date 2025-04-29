@@ -80,7 +80,7 @@
             "label": "Copy GLFW DLL",
             "command": "copy",
             "args": [
-                "${workspaceFolder}glfw3.dll",
+                "${workspaceFolder}\\glfw3.dll",
                 "${workspaceFolder}\\run\\glfw3.dll"
             ],
             "options": {
